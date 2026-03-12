@@ -1,6 +1,6 @@
 <div align="center">
   <h1>🔷 PRISM</h1>
-  <p><b>The Semantic Data Clearinghouse for AI Agents</b></p>
+  <p><b>Deterministic Semantic Data Routing for Autonomous Systems</b></p>
 
   <p>
     <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python"></a>
@@ -12,70 +12,52 @@
 
 ---
 
-## 🛑 The Problem: Semantic Data Drift
+## 🛑 The Silent Failure Problem
 
-AI agents making pricing, demand, or supply-chain decisions are only as reliable as the data they consume. In production, modern data pipelines rarely crash. Instead, they **silently succeed with the wrong information**.
+Modern data pipelines rarely crash. Instead, they fail silently. 
+An upstream firmware update changes a temperature reading from Fahrenheit to Celsius. A payment gateway bug defaults all failed lookups to "Credit Card." A timezone shift drops twelve hours of weekend data.
 
-* A upstream engineer changes a `revenue` column from dollars to cents.
-* An API casually drops a currency conversion.
-* A timezone shift accidentally includes cancelled orders in a demand signal.
+To traditional pipeline monitoring, **nothing is wrong**. The row counts match. The schemas are identical. Null values are at 0%.
 
-Basic SQL null-checks and row-counts pass. **The pipeline stays green.** But the *semantic meaning* of the data has changed. An AI pricing agent acting on this drifted data will confidently hallucinate a disastrous business decision. 
+But the *semantic meaning* of the data has mutated. When this drifted data is fed into an autonomous AI agent or a dynamic pricing engine, the system confidently executes disastrous, millions-of-dollars decisions based on a hallucinated reality.
 
-**Data pipelines lack a Layer 3 (Runtime Semantic Enforcement) gate.** 
-
----
-
-## 🔷 The Solution: Prism
-
-Prism is the enforcement layer that sits between your messy operational data pipelines and your high-stakes AI agents. 
-
-It verifies semantic correctness in real-time, blocks corrupted data before it reaches a decision model, and logs every event with an immutable, cryptographically secure audit trail.
-
-### Key Features
-* 🧠 **Semantic Fingerprinting:** Computes a lightweight, deterministic statistical vector of your data's true meaning (mean, variance, null rates). It detects semantic drift mathematically, without heavy ML training.
-* 📜 **LLM-Powered Data Contracts:** Define constraints in plain English (*"Revenue must be in USD and non-negative"*). Prism compiles this into executable rules.
-* 🚦 **Confidence-Gated Routing:** Automatically PASSes clean data, HOLDs ambiguous data for human review, and BLOCKs clear contract violations.
-* 🧑‍⚖️ **Human-in-the-Loop (HITL):** A secure Command Center where data stewards can review quarantined data, approving or rejecting with a full accountability trail.
-* 🏦 **Immutable Ledger:** Every decision (AI and Human) is appended to a DuckDB ledger for SOX/GDPR compliance.
+**Prism is a Layer 3 Semantic Gateway.** It sits between your raw data streams and your execution models, mathematically proving that data means exactly what it meant yesterday.
 
 ---
 
-## 🏗 Architecture
+## � How It Works: The Physics of Data
 
-```mermaid
-graph TD
-    subgraph Producers
-    A[Postgres] --> B(dbt transformations)
-    B --> C((Kafka Stream))
-    end
+Prism abandons fragile, slow-to-train ML anomaly detection models in favor of rigid **Statistical Mechanics** and **Thermodynamics**. 
 
-    subgraph PRISM Clearinghouse
-    C -->|Intercepts Data| D{Decision Engine}
-    D -->|1. Check Contract| E[Contract Parser]
-    D -->|2. Check Baseline| F[Semantic Fingerprinter]
-    
-    D -->|BLOCK/HOLD| H[HITL Review Queue]
-    H -->|Approve/Reject| I[(Immutable Ledger)]
-    D -->|PASS| I
-    end
+When data passes through Prism, it does not scan for simple nulls. It generates a high-dimensional mathematical vector (the "Fingerprint") of the data's true shape and evaluates incoming streams using **Cosine Distance**.
 
-    subgraph Consumers
-    D -->|Clean Data| J[Revenue AI Agent]
-    D -->|Clean Data| K[CEO Dashboard]
-    end
+If the fundamental geometry of the data warps, Prism severs the pipeline.
 
-    style D fill:#2d3748,stroke:#4a5568,color:#fff
-    style I fill:#f6e05e,stroke:#d69e2e,color:#000
-    style J fill:#48bb78,stroke:#2f855a,color:#fff
-```
+### Core Mathematical Constraints
+* 🌡️ **Information Entropy (Thermodynamics):** Prism measures the Shannon Entropy of categorical columns. If a bug forces diverse transaction types to default to a single value, Prism detects the system's sudden "temperature drop" and blocks the execution, even if the data is 100% syntactically valid.
+* 📈 **Kinematics (Velocity & Acceleration):** Prism monitors the first and second derivatives of core numerical streams. Organic shifts create smooth curves; software bugs create mathematically impossible acceleration.
+* 🤖 **LLM-Compiled Data Contracts:** Data stewards define limits in plain English (*"Revenue must be in USD and non-negative"*). An embedded LLM compiles this into abstract JSON constraints executed at runtime.
 
 ---
 
-## 🚀 Quick Start (The Chaos Demo)
+## 🚦 System Architecture
 
-The best way to understand Prism is to see it catch a silent pipeline failure. 
-The included demo generates perfectly clean revenue data, establishes a baseline, and then injects semantic chaos.
+If data violates physical constraints, Prism routes it based on severity:
+
+1. ✅ **PASS:** Data geometry aligns perfectly with the baseline. Routed to the AI model.
+2. ⚠️ **HOLD:** Moderate semantic drift detected. Data is quarantined. The downstream model is served a safe historical snapshot.
+3. ❌ **BLOCK:** Contract violation or catastrophic entropy collapse. Pipeline halted.
+
+### The Immutable Review Ledger (HITL)
+Machine learning models struggle with sudden, legitimate market shifts (e.g., launching a Free tier). Prism solves this via **Zero-Shot Adaptation**. 
+
+When data is placed on HOLD, it enters a secure Human-in-the-Loop review queue. A human analyzes the drift and clicks `APPROVE`. The exact millisecond the data is approved, Prism recalculates the mathematical vector and adopts it as the new geometric baseline. **The system adapts to new realities instantly, with zero retraining.** Every decision is logged to an append-only DuckDB ledger for compliance auditing.
+
+---
+
+## 🚀 The Chaos Demo
+
+The best way to understand Prism is to watch it catch a bug that SQL tests miss. The included demo generates 10,000 trips from the real NYC Taxi dataset and injects a silent diversity collapse.
 
 ### 1. Installation
 ```bash
@@ -87,24 +69,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-*(Optional) To enable AI-powered root-cause analysis and natural language contract parsing:*
+### 2. Run the Entropy Demo
+This demo simulates a payment gateway bug. All diverse payment types (Cash, Dispute, Void) are silently defaulted to "Credit Card". Row counts remain perfect. Nulls are 0%.
 ```bash
-cp .env.example .env
-# Open .env and add your GEMINI_API_KEY
+python demo/physics_demo.py
 ```
+*Watch Prism's semantic engine detect the Shannon Entropy collapse and instantly sever the pipeline.*
 
-### 2. Run the Chaos Pipeline
+To see traditional unit/sign-flip defenses:
 ```bash
-# First Run: Prism establishes the statistical baseline (PASS)
-python demo/pipeline.py
-
-# Chaos Mode A: Revenue is silently divided by 30 (monthly -> daily ARR)
-python demo/pipeline.py unit_flip
-
-# Chaos Mode B: Inject 40% NULL values
-python demo/pipeline.py null_injection
-
-# Chaos Mode C: Revenue flips negative
 python demo/pipeline.py sign_flip
 ```
 
@@ -112,21 +85,16 @@ python demo/pipeline.py sign_flip
 ```bash
 streamlit run ui/dashboard.py
 ```
-Open `http://localhost:8501` to view:
-* **The Live Dashboard:** Real-time pass/hold/block telemetry.
-* **The Review Queue:** Approve or reject the chaos data you just generated.
-* **The Audit Ledger:** View the immutable history of all pipeline events.
+Open `http://localhost:8501` to view the Live Telemetry, the Quarantine Queue, and the Cryptographic Audit Ledger.
 
 ---
 
 ## 🛠 Tech Stack
-* **Language:** Python 3.10+
-* **Data Processing:** Pandas, NumPy
-* **Audit Ledger:** DuckDB
-* **UI / Dashboard:** Streamlit
-* **AI Engine:** Google Gemini 2.0 Flash
+* **Engine / Telemetry:** Python 3.10+, Pandas, NumPy
+* **Immutable Audit Ledger:** DuckDB
+* **Data Steward Interface:** Streamlit
+* **Contract Compilation:** Google Gemini 2.0 Flash API
 
 ---
 
-## 💡 Designed for Enterprise Reliability
-Prism is built for environments where data integrity and compliance cannot be compromised. It provides the necessary infrastructure to operate autonomous systems with full confidence, ensuring the underlying data feeds are actively verified for semantic truth.
+*Prism provides the necessary mathematical infrastructure to operate autonomous systems with full confidence, ensuring the underlying data feeds are actively verified for semantic truth.*
