@@ -15,6 +15,24 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+def _benford_deviation(series: pd.Series) -> float:
+    """Calculate Mean Absolute Deviation from Benford's Law for a numeric series."""
+    if series.nunique() < 10:
+        return 0.0  # Not enough unique magnitude scales for Benford to apply
+
+    non_zero = series[series != 0].dropna().abs().astype(str)
+    # Extract first digit 1-9
+    first_digits = non_zero.str.extract(r'([1-9])', expand=False).dropna().astype(int)
+    
+    if len(first_digits) < 100:
+        return 0.0  # Not enough data for meaningful distribution
+        
+    counts = first_digits.value_counts(normalize=True).to_dict()
+    benford_expected = {d: np.log10(1 + 1/d) for d in range(1, 10)}
+    
+    deviation = sum(abs(counts.get(d, 0) - benford_expected[d]) for d in range(1, 10))
+    return round(float(deviation), 4)
+
 
 def _stats_for_column(series: pd.Series) -> dict:
     """Compute statistical summary for a single column."""
@@ -42,6 +60,7 @@ def _stats_for_column(series: pd.Series) -> dict:
                 "p25": round(float(non_null.quantile(0.25)), 4),
                 "p50": round(float(non_null.quantile(0.50)), 4),
                 "p75": round(float(non_null.quantile(0.75)), 4),
+                "benford_dev": _benford_deviation(series),
             })
     elif pd.api.types.is_string_dtype(series) or pd.api.types.is_object_dtype(series):
         non_null = series.dropna().astype(str)
@@ -115,6 +134,7 @@ def fingerprint_dataframe(df: pd.DataFrame, asset_description: str = "") -> dict
                 stats.get("unique_pct", 0.0) or 0.0,
                 stats.get("negative_pct", 0.0) or 0.0,
                 stats.get("p50", 0.0) or 0.0,
+                stats.get("benford_dev", 0.0) or 0.0,
             ])
         else:
             vector_parts.extend([
@@ -123,6 +143,7 @@ def fingerprint_dataframe(df: pd.DataFrame, asset_description: str = "") -> dict
                 stats.get("unique_pct", 0.0) or 0.0,
                 float(stats.get("entropy", 0.0) or 0.0),
                 float(stats.get("avg_length", 0.0) or 0.0),
+                0.0,  # alignment for benford_dev
             ])
 
     # Normalize the vector to prevent massive values (like timestamps or 
@@ -208,6 +229,14 @@ def compute_drift_score(
                 if curr_ent < (base_ent * 0.5):
                     penalty += 0.45  # Force a BLOCK decision
 
+            # 2. Benford Law Penalty
+            curr_benf = curr.get("benford_dev")
+            base_benf = base.get("benford_dev")
+            if curr_benf is not None and base_benf is not None:
+                # If deviation jumps dangerously (e.g. > 0.15) meaning curve flattened
+                if (curr_benf - base_benf) > 0.15:
+                    penalty += 0.45  # Force a BLOCK decision
+
     final_score = min(base_score + penalty, 1.0)
     return round(final_score, 4)
 
@@ -274,6 +303,17 @@ def explain_drift(
             explanations.append(
                 f"⚠️  Column '{col}' null rate changed from {base_null:.1f}% to {curr_null:.1f}%."
             )
+
+        # Check Benford
+        curr_benf = curr.get("benford_dev")
+        base_benf = base.get("benford_dev")
+        if curr_benf is not None and base_benf is not None:
+            if (curr_benf - base_benf) > 0.15:
+                explanations.append(
+                    f"🔴 Column '{col}' violates Benford's Law distributions. "
+                    f"Logarithmic statistical deviation spiked from {base_benf:.2f} to {curr_benf:.2f}. "
+                    f"Highly probable synthetic data injection or fraudulent modification."
+                )
 
     if not explanations:
         return (

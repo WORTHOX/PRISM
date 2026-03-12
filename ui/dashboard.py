@@ -2,10 +2,11 @@
 Prism - Streamlit Command Center
 ===================================
 The visual brain of Prism. 4 tabs:
-  1. 📊 Live Dashboard     — Pass/Hold/Block stats at a glance
-  2. ⚠️  Review Queue      — HITL: pending human decisions
-  3. 📋 Audit Ledger       — Full history with human overrides
-  4. 📝 Contracts          — Manage plain-English data contracts
+  1. Dashboard         — High-level telemetry
+  2. Review Queue      — Pending HITL decisions
+  3. Audit Ledger      — Immutable decision log
+  4. Accountability    — Human override tracking
+  5. Contracts         — Data contract definitions
 """
 
 import sys
@@ -20,111 +21,179 @@ from core.hitl import approve_decision, reject_decision, get_review_queue, get_a
 
 # ─── Page Config ──────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Prism — Data Clearinghouse",
-    page_icon="🔷",
-    layout="wide",
+    page_title="Prism Command Center",
+    layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+# ─── AUTHENTICATION ───────────────────────────────────────────────────
+# [TESTING PHASE] Authentication bypassed for local development/demos
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = True
+    st.session_state.user_name = "Admin (Test Mode)"
+    st.session_state.user_email = "admin@prism.local"
+
+# if not st.session_state.authenticated:
+#     st.markdown("<style>body, .main { background: var(--background-color); color: var(--text-color); font-family: 'Inter', sans-serif; }</style>", unsafe_allow_html=True)
+#     st.markdown("<center><h1 style='margin-top:100px; font-weight: 500;'>PRISM</h1><p style='color: var(--text-color); opacity: 0.7;'>Identity & Access Management</p></center>", unsafe_allow_html=True)
+#     
+#     col1, col2, col3 = st.columns([1,1,1])
+#     with col2:
+#         with st.form("login"):
+#             st.markdown("<span style='color: var(--text-color); opacity: 0.7; font-size: 0.9em;'>Secure access required to view ledger.</span>", unsafe_allow_html=True)
+#             name = st.text_input("Full Name")
+#             email = st.text_input("Corporate Email")
+#             secret = st.text_input("IAM Secret", type="password")
+#             if st.form_submit_button("Authenticate", use_container_width=True):
+#                 if name and email and secret == "admin":
+#                     st.session_state.authenticated = True
+#                     st.session_state.user_name = name
+#                     st.session_state.user_email = email
+#                     st.rerun()
+#                 else:
+#                     st.error("Invalid credentials or unauthorized identity.")
+#     st.stop()
 
 # ─── Styles ───────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-    .main { background: #0d1117; color: #e6edf3; }
-    .block-container { padding: 1.5rem 2rem; }
+    /* Core Backgrounds */
+    .main { background: var(--background-color); color: var(--text-color); }
+    .block-container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
 
     /* Metric cards */
     [data-testid="metric-container"] {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 1rem 1.5rem;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 6px;
+        padding: 1rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+    
+    [data-testid="stMetricValue"] {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-weight: 500;
+        color: var(--text-color);
     }
 
-    /* PASS / HOLD / BLOCK badge styles */
-    .badge-pass  { background:#1a4731; color:#3fb950; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; }
-    .badge-hold  { background:#3d2f00; color:#d29922; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; }
-    .badge-block { background:#3d1a1a; color:#f85149; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; }
-    .badge-approved { background:#1a4731; color:#3fb950; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; }
-    .badge-rejected { background:#3d1a1a; color:#f85149; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; }
-    .badge-pending  { background:#2d2d2d; color:#8b949e; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.8rem; }
+    /* Status Badges */
+    .badge-pass { background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-hold { background: rgba(210, 153, 34, 0.15); color: #d29922; border: 1px solid rgba(210, 153, 34, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-block { background: rgba(248, 81, 73, 0.15); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
 
     /* Section headers */
-    h1, h2, h3 { color: #e6edf3 !important; }
+    h1, h2, h3 { color: var(--text-color) !important; font-weight: 500 !important; letter-spacing: -0.5px; }
+    h4, h5, h6 { color: var(--text-color) !important; font-weight: 500 !important; }
 
     /* Tabs */
-    .stTabs [data-baseweb="tab-list"] { background: #161b22; border-radius: 8px; padding: 4px; }
-    .stTabs [data-baseweb="tab"] { color: #8b949e; border-radius: 6px; }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] { background: #21262d; color: #e6edf3; }
+    .stTabs [data-baseweb="tab-list"] { background: transparent; border-bottom: 1px solid rgba(128, 128, 128, 0.2); gap: 2rem; padding-bottom: 0px; }
+    .stTabs [data-baseweb="tab"] { color: var(--text-color); opacity: 0.7; border-radius: 0; padding: 10px 0; border-bottom: 2px solid transparent; }
+    .stTabs [data-baseweb="tab"]:hover { color: var(--text-color); }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] { background: transparent; color: var(--text-color); border-bottom-color: var(--primary-color); font-weight: 500; }
 
     /* Buttons */
     div.stButton > button {
-        background: #21262d;
-        color: #e6edf3;
-        border: 1px solid #30363d;
-        border-radius: 8px;
+        background: var(--secondary-background-color);
+        color: var(--text-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 6px;
         font-weight: 500;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
     }
-    div.stButton > button:hover { background: #30363d; border-color: #58a6ff; color: #58a6ff; }
+    div.stButton > button:hover { background: #30363d; border-color: var(--text-color); opacity: 0.7; color: var(--text-color); }
+    
+    /* Primary buttons */
+    .st-emotion-cache-1n76uvr p { font-weight: 500; }
 
     /* Tables */
-    .stDataFrame { background: #161b22; }
-    [data-testid="stDataFrame"] div { background: #161b22 !important; }
+    .stDataFrame { border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 6px; overflow: hidden; }
+    [data-testid="stDataFrame"] div { background: #0d1117 !important; }
+
+    /* Data expanders */
+    [data-testid="stExpander"] {
+        background: var(--background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 6px;
+    }
+    [data-testid="stExpander"] summary {
+        background: var(--secondary-background-color);
+        padding: 0.75rem 1rem;
+        color: var(--text-color);
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 0.85rem;
+    }
 
     /* Input fields */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea {
-        background: #161b22;
-        border: 1px solid #30363d;
-        color: #e6edf3;
-        border-radius: 8px;
+        background: var(--background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        color: var(--text-color);
+        border-radius: 6px;
+        font-size: 0.9rem;
+    }
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: var(--primary-color);
+        box-shadow: inset 0 0 0 1px var(--primary-color);
     }
 
-    /* Info boxes */
+    /* Enterprise Info boxes */
     .info-box {
-        background: #161b22;
-        border: 1px solid #30363d;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
         border-left: 3px solid #58a6ff;
-        border-radius: 8px;
+        border-radius: 4px;
         padding: 12px 16px;
-        margin: 8px 0;
+        margin: 12px 0;
+        font-size: 0.85rem;
+        color: var(--text-color); opacity: 0.7;
     }
     .violation-box {
-        background: #1c0f0f;
-        border: 1px solid #f85149;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
         border-left: 3px solid #f85149;
-        border-radius: 8px;
+        border-radius: 4px;
         padding: 12px 16px;
-        margin: 8px 0;
+        margin: 12px 0;
+        font-size: 0.85rem;
+        color: var(--text-color);
     }
     .fix-box {
-        background: #0f1c10;
-        border: 1px solid #3fb950;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
         border-left: 3px solid #3fb950;
-        border-radius: 8px;
+        border-radius: 4px;
         padding: 12px 16px;
-        margin: 8px 0;
+        margin: 12px 0;
+        font-size: 0.85rem;
+        color: var(--text-color);
+        font-family: 'SF Mono', Consolas, monospace;
     }
+    
+    hr { border-color: rgba(128, 128, 128, 0.2); margin: 2rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ─── Header ────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
-    <span style="font-size:2rem;">🔷</span>
+st.markdown(f"""
+<div style="display:flex; align-items:center; gap:16px; margin-bottom:12px;">
     <div>
-        <h1 style="margin:0; font-size:1.8rem; font-weight:700;">PRISM</h1>
-        <p style="margin:0; color:#8b949e; font-size:0.85rem;">Semantic Data Clearinghouse — Command Center</p>
+        <h1 style="margin:0; font-size:1.6rem; font-weight:600; letter-spacing: 1px;">PRISM</h1>
+        <p style="margin:0; color:var(--text-color); opacity:0.7; font-size:0.8rem; text-transform: uppercase; letter-spacing: 0.5px;">Semantic Data Clearinghouse</p>
     </div>
-    <div style="margin-left:auto; color:#8b949e; font-size:0.8rem;">
-        Last refreshed: {ts}
+    <div style="margin-left:auto; text-align:right; color:var(--text-color); opacity:0.7; font-size:0.75rem; font-family: 'SF Mono', Consolas, monospace;">
+        Identity: <span style="color:var(--text-color);">{st.session_state.user_name}</span><br/>
+        System Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")}
     </div>
 </div>
-""".format(ts=datetime.now().strftime("%H:%M:%S")), unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 st.divider()
 
@@ -132,25 +201,25 @@ st.divider()
 stats = get_dashboard_stats()
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Total Events", stats["total_events"])
-c2.metric("✅ Passed", stats["total_pass"],
+c1.metric("Ingestion Events", stats["total_events"])
+c2.metric("Passed", stats["total_pass"],
           delta=f"{round(stats['total_pass']/max(stats['total_events'],1)*100)}%")
-c3.metric("⚠️ Held", stats["total_hold"])
-c4.metric("❌ Blocked", stats["total_block"])
-c5.metric("🕐 Pending Review", stats["pending_review"],
-          delta="Needs action" if stats["pending_review"] > 0 else "Clear",
+c3.metric("Held", stats["total_hold"])
+c4.metric("Blocked", stats["total_block"])
+c5.metric("Pending Review", stats["pending_review"],
+          delta="Requires Action" if stats["pending_review"] > 0 else "Clear",
           delta_color="inverse")
-c6.metric("🧑 Human Overrides", stats["human_overrides"])
+c6.metric("Human Overrides", stats["human_overrides"])
 
 st.divider()
 
 # ─── Tabs ──────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Live Dashboard",
-    f"⚠️ Review Queue ({stats['pending_review']})",
-    "📋 Audit Ledger",
-    "🧑 Accountability",
-    "📝 Contracts",
+    "LIVE DASHBOARD",
+    f"REVIEW QUEUE ({stats['pending_review']})",
+    "AUDIT LEDGER",
+    "ACCOUNTABILITY",
+    "CONTRACTS",
 ])
 
 
@@ -158,153 +227,143 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 #  TAB 1: LIVE DASHBOARD
 # ══════════════════════════════════════════════════
 with tab1:
-    st.subheader("Recent Decisions")
+    st.markdown("<h3 style='font-size: 1.1rem; margin-top: 1rem;'>Recent Executions</h3>", unsafe_allow_html=True)
 
     decisions = get_recent_decisions(limit=20)
     if not decisions:
-        st.info("No decisions yet. Run `python demo/pipeline.py` to generate data.")
+        st.info("No data pipelines have executed through Prism yet.")
     else:
         for d in decisions:
             ai_dec = d["ai_decision"]
             color_map = {"PASS": "badge-pass", "HOLD": "badge-hold", "BLOCK": "badge-block"}
-            badge = f'<span class="{color_map.get(ai_dec, "")}">{"✅" if ai_dec=="PASS" else "⚠️" if ai_dec=="HOLD" else "❌"} {ai_dec}</span>'
+            badge = f'<span class="{color_map.get(ai_dec, "")}">{ai_dec}</span>'
 
             override_html = ""
             if d.get("human_decision"):
                 hd = d["human_decision"]
-                h_badge = f'<span class="badge-{"approved" if hd=="APPROVED" else "rejected"}">' \
-                          f'{"✅" if hd=="APPROVED" else "❌"} Human: {hd}</span>'
-                override_html = f' &nbsp;→&nbsp; {h_badge} by <b>{d.get("human_name","?")}</b>'
+                h_class = "badge-pass" if hd == "APPROVED" else "badge-block"
+                override_html = f' &nbsp;→&nbsp; <span class="{h_class}">OVERRIDDEN: {hd}</span> <span style="color:var(--text-color); opacity:0.7; font-size:0.75rem;">by {d.get("human_name","?")}</span>'
 
             ts = str(d["timestamp"])[:19] if d["timestamp"] else "—"
             conf_pct = round((d.get("ai_confidence") or 0) * 100)
             drift = d.get("fingerprint_delta") or 0
 
             with st.expander(
-                f'{ts} | {d["pipeline_name"]} → {d["data_asset"]} | {ai_dec}',
+                f'{ts}  │  {d["pipeline_name"]}  →  {d["data_asset"]}  │  {ai_dec}',
                 expanded=False
             ):
                 st.markdown(
-                    f'<div class="info-box">'
+                    f'<div style="margin-bottom: 1rem;">'
                     f'{badge}{override_html}<br/>'
-                    f'<small>'
-                    f'Confidence: <b>{conf_pct}%</b> &nbsp;|&nbsp; '
-                    f'Drift Score: <b>{drift:.3f}</b> &nbsp;|&nbsp; '
-                    f'Rows: <b>{d.get("rows_affected", "?")} </b>&nbsp;|&nbsp; '
-                    f'Snapshot Served: <b>{"Yes" if d.get("snapshot_used") else "No"}</b>'
-                    f'</small></div>',
+                    f'<div style="color:var(--text-color); opacity:0.7; font-family:\'SF Mono\', Consolas, monospace; font-size:0.75rem; margin-top:8px;">'
+                    f'Confidence Model: {conf_pct}% &nbsp;│&nbsp; '
+                    f'Drift Coefficient: {drift:.3f} &nbsp;│&nbsp; '
+                    f'Rows Processed: {d.get("rows_affected", "?")} &nbsp;│&nbsp; '
+                    f'Snapshot Served: {"Yes" if d.get("snapshot_used") else "No"}'
+                    f'</div></div>',
                     unsafe_allow_html=True,
                 )
 
                 if d.get("ai_reason"):
-                    st.markdown(f'**AI Reason:** {d["ai_reason"]}')
+                    st.markdown(f'<div style="font-size: 0.9rem; color: var(--text-color);"><b>Diagnostic Reason:</b> {d["ai_reason"]}</div>', unsafe_allow_html=True)
 
                 if d.get("ai_fix_suggestion"):
                     st.markdown(
-                        f'<div class="fix-box">🔧 <b>Suggested Fix:</b><br/>{d["ai_fix_suggestion"]}</div>',
+                        f'<div class="fix-box"><b>Suggested Mitigation:</b><br/>{d["ai_fix_suggestion"]}</div>',
                         unsafe_allow_html=True,
                     )
 
                 if d.get("human_note"):
-                    st.markdown(f'**Human Note:** _{d["human_note"]}_')
+                    st.markdown(f'<div style="font-size: 0.85rem; color: var(--text-color); opacity: 0.7; margin-top: 8px;"><b>Auditor Note:</b> <i>{d["human_note"]}</i></div>', unsafe_allow_html=True)
 
-                st.caption(f'Event ID: `{d["event_id"]}`')
+                st.markdown(f'<div style="font-family:\'SF Mono\', Consolas, monospace; font-size:0.7rem; color:var(--text-color); opacity:0.5; margin-top: 1rem;">Trace ID: {d["event_id"]}</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════
 #  TAB 2: REVIEW QUEUE (HITL)
 # ══════════════════════════════════════════════════
 with tab2:
-    st.subheader("⚠️ Pending Human Review")
+    st.markdown("<h3 style='font-size: 1.1rem; margin-top: 1rem;'>Pending Human Review</h3>", unsafe_allow_html=True)
     st.markdown(
-        '<div class="info-box">These events were flagged by AI (HOLD or BLOCK) and '
-        'are waiting for a data steward to approve or reject them. '
-        'Every decision here is permanently logged.</div>',
+        '<div class="info-box">Events flagged with HOLD or BLOCK status require manual steward arbitration. '
+        'All interventions are permanently recorded in the immutable ledger.</div>',
         unsafe_allow_html=True
     )
 
     queue = get_review_queue()
     if not queue:
-        st.success("🎉 Review queue is clear! All flagged events have been reviewed.")
+        st.success("Review queue is currently empty. All flagged events have been resolved.")
     else:
         for item in queue:
             ai_dec = item["ai_decision"]
-            color = "#d29922" if ai_dec == "HOLD" else "#f85149"
-            icon = "⚠️" if ai_dec == "HOLD" else "❌"
+            badge_class = "badge-hold" if ai_dec == "HOLD" else "badge-block"
 
             with st.expander(
-                f'{icon} {ai_dec} — {item["data_asset"]} | Pipeline: {item["pipeline_name"]}',
+                f'{ai_dec}  │  {item["data_asset"]}  │  Pipeline: {item["pipeline_name"]}',
                 expanded=True
             ):
-                st.markdown(f'**AI Decision:** `{ai_dec}` (confidence: {round((item.get("ai_confidence") or 0)*100)}%)')
-                st.markdown(f'**AI Reason:** {item.get("ai_reason", "—")}')
+                st.markdown(f'<span class="{badge_class}">{ai_dec}</span> <span style="font-family:\'SF Mono\', Consolas, monospace; font-size:0.8rem; color:var(--text-color); opacity:0.7; margin-left:8px;">Model Confidence: {round((item.get("ai_confidence") or 0)*100)}%</span>', unsafe_allow_html=True)
+                st.markdown(f'<div style="margin-top: 12px; font-size: 0.9rem; color: var(--text-color);"><b>Reason:</b> {item.get("ai_reason", "—")}</div>', unsafe_allow_html=True)
 
                 if item.get("ai_fix_suggestion"):
                     st.markdown(
-                        f'<div class="fix-box">🔧 <b>Suggested Fix:</b><br/>{item["ai_fix_suggestion"]}</div>',
+                        f'<div class="fix-box"><b>Suggested Mitigation:</b><br/>{item["ai_fix_suggestion"]}</div>',
                         unsafe_allow_html=True
                     )
 
-                st.markdown("---")
-                st.markdown("**Your Decision:**")
+                st.markdown("<hr style='margin: 1rem 0; border-color: rgba(128, 128, 128, 0.2);' />", unsafe_allow_html=True)
+                st.markdown("<div style='font-size: 0.85rem; color: var(--text-color); opacity: 0.7; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;'>Arbitration Required</div>", unsafe_allow_html=True)
 
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    st.markdown("###### ✅ Approve (Override AI)")
                     with st.form(key=f"approve_{item['event_id']}"):
-                        name_a = st.text_input("Your Name", key=f"name_a_{item['event_id']}", placeholder="e.g. Sumit Singh")
-                        email_a = st.text_input("Your Email", key=f"email_a_{item['event_id']}", placeholder="you@company.com")
-                        note_a = st.text_area("Why are you approving this?", key=f"note_a_{item['event_id']}", height=80)
-                        if st.form_submit_button("✅ Approve & Let Data Through", use_container_width=True):
-                            if name_a and email_a:
-                                result = approve_decision(item["event_id"], name_a, email_a, note_a)
-                                st.success(result["message"])
-                                st.rerun()
-                            else:
-                                st.error("Please enter your name and email.")
+                        st.markdown(f"<div style='font-family:\'SF Mono\', Consolas, monospace; font-size:0.75rem; color:var(--text-color); margin-bottom: 8px;'>Authorized By: {st.session_state.user_name} ({st.session_state.user_email})</div>", unsafe_allow_html=True)
+                        note_a = st.text_area("Justification for Override", key=f"note_a_{item['event_id']}", height=80, placeholder="Explain why this data is safe to ingest...")
+                        if st.form_submit_button("Approve & Unblock Data", use_container_width=True):
+                            result = approve_decision(item["event_id"], st.session_state.user_name, st.session_state.user_email, note_a)
+                            st.success(result["message"])
+                            st.rerun()
 
                 with col_b:
-                    st.markdown("###### ❌ Reject (Confirm AI was Right)")
                     with st.form(key=f"reject_{item['event_id']}"):
-                        name_r = st.text_input("Your Name", key=f"name_r_{item['event_id']}", placeholder="e.g. Sumit Singh")
-                        email_r = st.text_input("Your Email", key=f"email_r_{item['event_id']}", placeholder="you@company.com")
-                        note_r = st.text_area("Why are you rejecting?", key=f"note_r_{item['event_id']}", height=80)
-                        if st.form_submit_button("❌ Reject & Keep Data Blocked", use_container_width=True):
-                            if name_r and email_r:
-                                result = reject_decision(item["event_id"], name_r, email_r, note_r)
-                                st.success(result["message"])
-                                st.rerun()
-                            else:
-                                st.error("Please enter your name and email.")
+                        st.markdown(f"<div style='font-family:\'SF Mono\', Consolas, monospace; font-size:0.75rem; color:var(--text-color); margin-bottom: 8px;'>Authorized By: {st.session_state.user_name} ({st.session_state.user_email})</div>", unsafe_allow_html=True)
+                        note_r = st.text_area("Justification for Rejection", key=f"note_r_{item['event_id']}", height=80, placeholder="Explain why the AI model's block is correct...")
+                        if st.form_submit_button("Reject & Maintain Block", use_container_width=True):
+                            result = reject_decision(item["event_id"], st.session_state.user_name, st.session_state.user_email, note_r)
+                            st.success(result["message"])
+                            st.rerun()
 
-                st.caption(f'Event ID: `{item["event_id"]}`')
+                st.markdown(f'<div style="font-family:\'SF Mono\', Consolas, monospace; font-size:0.7rem; color:var(--text-color); opacity:0.5; margin-top: 1rem;">Trace ID: {item["event_id"]}</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════
 #  TAB 3: FULL AUDIT LEDGER
 # ══════════════════════════════════════════════════
 with tab3:
-    st.subheader("📋 Full Audit Ledger")
-    st.caption("Complete, immutable record of every AI decision — with human overrides merged.")
+    st.markdown("<h3 style='font-size: 1.1rem; margin-top: 1rem;'>Immutable Audit Record</h3>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="info-box">Comprehensive log of all automated decisions and subsequent manual interventions.</div>',
+        unsafe_allow_html=True
+    )
 
-    all_decisions = get_recent_decisions(limit=100)
+    all_decisions = get_recent_decisions(limit=250)
     if not all_decisions:
-        st.info("No events yet. Run the demo pipeline first.")
+        st.info("The ledger is currently empty.")
     else:
         rows = []
         for d in all_decisions:
             ai_dec = d["ai_decision"]
             h_dec = d.get("human_decision") or "—"
             rows.append({
-                "Time": str(d["timestamp"])[:19] if d["timestamp"] else "—",
-                "Pipeline": d["pipeline_name"],
-                "Asset": d["data_asset"],
-                "AI Decision": ai_dec,
-                "Confidence": f"{round((d.get('ai_confidence') or 0)*100)}%",
-                "Drift": f"{(d.get('fingerprint_delta') or 0):.3f}",
-                "Human Decision": h_dec,
-                "Reviewed By": d.get("human_name") or "—",
-                "Event ID": d["event_id"][:8] + "...",
+                "Timestamp (UTC)": str(d["timestamp"])[:19] if d["timestamp"] else "—",
+                "Ingestion Pipeline": d["pipeline_name"],
+                "Data Asset Target": d["data_asset"],
+                "Automated Decision": ai_dec,
+                "Model Conf.": f"{round((d.get('ai_confidence') or 0)*100)}%",
+                "Semantic Drift": f"{(d.get('fingerprint_delta') or 0):.3f}",
+                "Human Override": h_dec,
+                "Auditor": d.get("human_name") or "—",
+                "Trace ID": d["event_id"][:8] + "...",
             })
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -314,26 +373,25 @@ with tab3:
 #  TAB 4: ACCOUNTABILITY REPORT
 # ══════════════════════════════════════════════════
 with tab4:
-    st.subheader("🧑 Accountability Report")
+    st.markdown("<h3 style='font-size: 1.1rem; margin-top: 1rem;'>Human Intervention Tracking</h3>", unsafe_allow_html=True)
     st.markdown(
-        '<div class="info-box">Every human override, who made it, when, and why. '
-        'This is your compliance and audit trail.</div>',
+        '<div class="info-box">Isolated view of manual overrides for compliance and operational auditing purposes.</div>',
         unsafe_allow_html=True,
     )
 
     report = get_accountability_report()
     if not report:
-        st.info("No human overrides yet. Once reviewers act on the queue, their decisions appear here.")
+        st.info("No manual overrides have been recorded.")
     else:
         rows = []
         for r in report:
             rows.append({
-                "Time": str(r["timestamp"])[:19] if r["timestamp"] else "—",
-                "Person": f'{r["human_name"]} ({r["human_email"]})',
-                "Action": r["human_decision"],
-                "Asset": r["data_asset"],
-                "Original AI Call": r["original_ai_decision"],
-                "Note": (r.get("human_note") or "—")[:80],
+                "Timestamp (UTC)": str(r["timestamp"])[:19] if r["timestamp"] else "—",
+                "Authorized Auditor": f'{r["human_name"]} ({r["human_email"]})',
+                "Arbitration": r["human_decision"],
+                "Target Asset": r["data_asset"],
+                "Original Model Status": r["original_ai_decision"],
+                "Justification Note": (r.get("human_note") or "—")[:100],
             })
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -343,50 +401,53 @@ with tab4:
 #  TAB 5: CONTRACT MANAGEMENT
 # ══════════════════════════════════════════════════
 with tab5:
-    st.subheader("📝 Data Contracts")
+    st.markdown("<h3 style='font-size: 1.1rem; margin-top: 1rem;'>Semantic Data Contracts</h3>", unsafe_allow_html=True)
     st.markdown(
-        '<div class="info-box">Define what your data <em>means</em> in plain English. '
-        'Prism compiles this into executable rules.</div>',
+        '<div class="info-box">Define semantic constraints in plain English. The Prism compilation engine will translate these into executable invariants.</div>',
         unsafe_allow_html=True,
     )
 
-    st.markdown("#### Add / Update a Contract")
+    st.markdown("<h4 style='font-size: 0.95rem; margin-top: 1.5rem; color: #8b949e !important; text-transform: uppercase;'>Register New Sequence</h4>", unsafe_allow_html=True)
 
     with st.form("new_contract"):
-        asset = st.text_input("Data Asset Name", placeholder="e.g. fct_monthly_revenue")
-        author = st.text_input("Your Name / Email", placeholder="e.g. sumit@company.com")
+        asset = st.text_input("Target Asset Identifier", placeholder="e.g., fct_monthly_revenue")
+        author = f"{st.session_state.user_name} ({st.session_state.user_email})"
+        st.markdown(f"<div style='font-family:\'SF Mono\', Consolas, monospace; font-size:0.75rem; color:var(--text-color); opacity:0.7; margin-bottom: 12px;'>Authoring Entity: {author}</div>", unsafe_allow_html=True)
         contract_text = st.text_area(
-            "Plain-English Contract",
+            "Semantic Constraints (Plain English)",
             height=120,
             placeholder=(
-                "Revenue is always in USD. Values must be non-negative. "
-                "Represents monthly recurring revenue from active paid subscribers only. "
-                "Should not grow by more than 30% week-over-week."
+                "Revenue must be recorded in USD and cannot be negative. "
+                "The metric represents strictly active monthly subscribers. "
+                "Week-over-week volatility should not exceed 30%."
             )
         )
-        submitted = st.form_submit_button("💾 Save & Compile Contract", use_container_width=True)
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            submitted = st.form_submit_button("Compile & Register Contract", use_container_width=True)
+            
         if submitted:
             if asset and contract_text and author:
                 from core.contracts import create_contract
-                with st.spinner("Compiling contract with AI..."):
+                with st.spinner("Compiling semantic constraints..."):
                     result = create_contract(asset, contract_text, author)
-                st.success(f"✅ Contract registered for `{asset}`")
-                with st.expander("View compiled rules"):
+                st.success(f"Successfully compiled invariants for '{asset}'")
+                with st.expander("View Compiled Invariants Structure"):
                     import json
                     st.json(result["compiled"])
                 st.rerun()
             else:
-                st.error("Please fill all fields.")
+                st.error("Please supply both target identifier and constraint text.")
 
-    st.markdown("#### Existing Contracts")
+    st.markdown("<h4 style='font-size: 0.95rem; margin-top: 2rem; color: #8b949e !important; text-transform: uppercase;'>Active Contracts</h4>", unsafe_allow_html=True)
     contracts = get_contracts()
     if not contracts:
-        st.info("No contracts yet. Add one above.")
+        st.info("No semantic contracts registered in the active environment.")
     else:
         for c in contracts:
-            with st.expander(f"📋 {c['data_asset']} — by {c['created_by']}"):
-                st.markdown(f"**Contract:** {c['plain_english']}")
-                st.caption(f"Last updated: {str(c['updated_at'])[:19]}")
+            with st.expander(f"CONTRACT: {c['data_asset']}  │  Author: {c['created_by']}"):
+                st.markdown(f"<div style='font-size: 0.9rem; color: var(--text-color); margin-bottom: 1rem;'>{c['plain_english']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-family:\'SF Mono\', Consolas, monospace; font-size:0.75rem; color:var(--text-color); opacity:0.7;'>Last Compilation: {str(c['updated_at'])[:19]}</div>", unsafe_allow_html=True)
                 import json
                 try:
                     rules = json.loads(c.get("compiled_rules") or "{}")
@@ -396,9 +457,9 @@ with tab5:
                     pass
 
 # ─── Footer ────────────────────────────────────────────────────────────
-st.divider()
+st.markdown("<hr style='margin: 3rem 0 1rem 0; border-color: rgba(128, 128, 128, 0.2);' />", unsafe_allow_html=True)
 st.markdown(
-    '<center><small style="color:#484f58;">🔷 PRISM — Semantic Data Clearinghouse &nbsp;|&nbsp; '
-    'Built to be acquired &nbsp;|&nbsp; github.com/prism-data</small></center>',
+    '<center><span style="color:var(--text-color); opacity:0.5; font-size: 0.8rem; letter-spacing: 0.5px;">PRISM SEMANTIC DATA CLEARINGHOUSE &nbsp;│&nbsp; '
+    'ENTERPRISE INFRASTRUCTURE &nbsp;│&nbsp; GITHUB.COM/PRISM-DATA</span></center>',
     unsafe_allow_html=True,
 )

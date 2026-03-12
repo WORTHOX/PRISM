@@ -26,6 +26,29 @@ _GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 _gemini_client = genai.Client(api_key=_GEMINI_KEY) if _GEMINI_KEY else None
 
 
+from pydantic import BaseModel
+from typing import List, Optional
+
+class RuleParameter(BaseModel):
+    min: Optional[float] = None
+    max: Optional[float] = None
+    max_growth_pct: Optional[float] = None
+    allowed_values: Optional[List[str]] = None
+
+class ContractRule(BaseModel):
+    rule_id: str
+    type: str
+    column: str
+    description: str
+    parameters: RuleParameter
+
+class ContractSchema(BaseModel):
+    asset_description: str
+    unit: str
+    rules: List[ContractRule]
+    critical_columns: List[str]
+    business_context: str
+
 # ──────────────────────────────────────────
 #  CONTRACT PARSING
 # ──────────────────────────────────────────
@@ -35,28 +58,6 @@ data contract into a structured JSON object with executable rules.
 
 Plain-English Contract:
 "{plain_english}"
-
-Return ONLY a valid JSON object with this exact structure:
-{{
-  "asset_description": "Brief description of what this data asset is",
-  "unit": "currency unit or measurement unit if mentioned",
-  "rules": [
-    {{
-      "rule_id": "rule_1",
-      "type": "range_check | null_check | growth_limit | unit_check | custom",
-      "column": "column_name_if_applicable",
-      "description": "plain English description of this rule",
-      "parameters": {{
-        "min": null_or_number,
-        "max": null_or_number,
-        "max_growth_pct": null_or_number,
-        "allowed_values": null_or_list
-      }}
-    }}
-  ],
-  "critical_columns": ["list", "of", "must-have", "columns"],
-  "business_context": "Brief business context from the contract"
-}}
 
 Be precise. Extract every constraint mentioned."""
 
@@ -74,14 +75,13 @@ def parse_contract_with_ai(plain_english: str) -> dict:
         response = _gemini_client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ContractSchema,
+                temperature=0.1,
+            )
         )
         text = response.text.strip()
-        # Remove markdown code blocks if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
         return json.loads(text)
     except Exception as e:
         print(f"[Contract Engine] Gemini parse failed: {e}. Using fallback.")
