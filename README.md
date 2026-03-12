@@ -128,5 +128,5 @@ Open `http://localhost:8501` to view:
 
 ---
 
-## 💡 Designed for Output-Driven Teams
-Prism is built for environments where engineering speed matters, but accountability cannot be sacrificed. It is the system that allows teams to ship high-stakes revenue agents confidently, knowing the underlying data feed is actively verified for semantic truth.
+## 💡 Designed for Enterprise Reliability
+Prism is built for environments where data integrity and compliance cannot be compromised. It provides the necessary infrastructure to operate autonomous systems with full confidence, ensuring the underlying data feeds are actively verified for semantic truth.
