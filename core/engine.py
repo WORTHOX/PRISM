@@ -87,7 +87,12 @@ def inspect(
     if baseline_record:
         baseline_vec = json.loads(baseline_record["fingerprint_vec"])
         baseline_stats = json.loads(baseline_record.get("column_stats") or "{}")
-        drift_score = compute_drift_score(current_vec, baseline_vec)
+        drift_score = compute_drift_score(
+            current_fingerprint=current_fp["vector"],
+            baseline_fingerprint=baseline_vec,
+            current_stats=current_fp["column_stats"],
+            baseline_stats=baseline_stats,
+        )
         drift_explanation = explain_drift(current_stats, baseline_stats, drift_score)
     else:
         # First run — save as baseline and PASS
@@ -106,7 +111,7 @@ def inspect(
             confidence=1.0,
             reason="First run — baseline fingerprint established.",
             fix_suggestion=None,
-            drift_score=0.0,
+            drift_score=0.0, # This will be 0.0 for the first run, as there's no baseline to compare against.
             drift_explanation="Baseline created.",
             event_id=event_id,
             snapshot_served=False,

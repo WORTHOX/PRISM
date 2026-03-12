@@ -46,8 +46,13 @@ def _stats_for_column(series: pd.Series) -> dict:
     elif pd.api.types.is_string_dtype(series) or pd.api.types.is_object_dtype(series):
         non_null = series.dropna().astype(str)
         if len(non_null) > 0:
+            # Physics Guardrail: Shannon Entropy (Measures diversity/chaos of the column)
+            value_counts = non_null.value_counts(normalize=True)
+            entropy = -np.sum(value_counts * np.log2(value_counts))
+            
             stats.update({
                 "avg_length": round(non_null.str.len().mean(), 2),
+                "entropy": round(float(entropy), 4),
                 "sample_values": non_null.head(5).tolist(),
             })
 
@@ -116,16 +121,21 @@ def fingerprint_dataframe(df: pd.DataFrame, asset_description: str = "") -> dict
                 0.0, 0.0, 0.0, 0.0,
                 stats.get("null_pct", 0.0) or 0.0,
                 stats.get("unique_pct", 0.0) or 0.0,
-                0.0,
+                float(stats.get("entropy", 0.0) or 0.0),
                 float(stats.get("avg_length", 0.0) or 0.0),
             ])
 
-    # Normalize the vector
+    # Normalize the vector to prevent massive values (like timestamps or 
+    # huge revenue means) from drowning out critical percentages (like entropy)
+    # We do a log1p transform on the absolute values to compress the scale
     vec = np.array(vector_parts, dtype=np.float64)
-    # Replace inf/nan with 0
     vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Compression: keep sign but compress magnitude
+    signs = np.sign(vec)
+    vec_compressed = signs * np.log1p(np.abs(vec))
 
-    vec_list = vec.tolist()
+    vec_list = vec_compressed.tolist()
     vec_str = json.dumps(vec_list)
     fingerprint_hash = hashlib.sha256(vec_str.encode()).hexdigest()[:16]
 
@@ -145,6 +155,8 @@ def fingerprint_dataframe(df: pd.DataFrame, asset_description: str = "") -> dict
 def compute_drift_score(
     current_fingerprint: list[float],
     baseline_fingerprint: list[float],
+    current_stats: dict = None,
+    baseline_stats: dict = None,
 ) -> float:
     """
     Compute semantic drift between two fingerprints.
@@ -176,12 +188,28 @@ def compute_drift_score(
 
     if norm_curr == 0 or norm_base == 0:
         # If one vector is all zeros, use L2 norm ratio instead
-        return float(np.linalg.norm(current - baseline) / max(norm_curr, norm_base, 1.0))
+        base_score = float(np.linalg.norm(current - baseline) / max(norm_curr, norm_base, 1.0))
+    else:
+        cosine_similarity = np.dot(current, baseline) / (norm_curr * norm_base)
+        base_score = 1.0 - float(np.clip(cosine_similarity, -1.0, 1.0))
+        
+    # --- PHYSICS GUARDRAIL PENALTIES ---
+    # If we have the raw stats, we apply explicit physics penalties
+    # that vector geometry alone might underestimate in highly-dimensional data
+    penalty = 0.0
+    if current_stats and baseline_stats:
+        for col, base in baseline_stats.items():
+            curr = current_stats.get(col, {})
+            # 1. Entropy Collapse Penalty
+            curr_ent = curr.get("entropy")
+            base_ent = base.get("entropy")
+            if curr_ent is not None and base_ent is not None and base_ent > 0.5:
+                # If entropy drops by more than 50% (massive loss of diversity)
+                if curr_ent < (base_ent * 0.5):
+                    penalty += 0.45  # Force a BLOCK decision
 
-    cosine_similarity = np.dot(current, baseline) / (norm_curr * norm_base)
-    cosine_distance = 1.0 - float(np.clip(cosine_similarity, -1.0, 1.0))
-
-    return round(cosine_distance, 4)
+    final_score = min(base_score + penalty, 1.0)
+    return round(final_score, 4)
 
 
 def explain_drift(
@@ -228,6 +256,16 @@ def explain_drift(
                         f"🟡 Column '{col}' {stat} changed by {pct_change:.0f}% "
                         f"(was {base_val:.2f}, now {curr_val:.2f})."
                     )
+
+        # Check entropy collapse (diversity loss)
+        curr_ent = curr.get("entropy")
+        base_ent = base.get("entropy")
+        if curr_ent is not None and base_ent is not None and base_ent > 0:
+            if curr_ent < (base_ent * 0.5):
+                explanations.append(
+                    f"🔴 Column '{col}' suffered a massive loss of diversity (Shannon Entropy dropped "
+                    f"from {base_ent:.2f} to {curr_ent:.2f}). Possible silent defaulting or data duplication."
+                )
 
         # Check null rate change
         curr_null = curr.get("null_pct", 0)
