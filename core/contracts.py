@@ -163,29 +163,16 @@ def generate_fix_suggestion(
     violation_reason: str,
     drift_explanation: str,
 ) -> str:
-    """Use Gemini to generate a specific fix suggestion for a violation."""
-    if not _GEMINI_KEY or not _gemini_client:
-        return (
-            f"[Auto-diagnosis] Semantic drift detected in '{data_asset}'.\n"
-            f"Violation: {violation_reason}\n"
-            f"Recommended action: Review recent pipeline changes, especially schema migrations "
-            f"and aggregation logic changes. Compare with last known-good snapshot."
-        )
-
-    try:
-        prompt = _FIX_PROMPT.format(
-            data_asset=data_asset,
-            contract_plain_english=contract_plain_english,
-            violation_reason=violation_reason,
-            drift_explanation=drift_explanation,
-        )
-        response = _gemini_client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-        )
-        return response.text.strip()
-    except Exception as e:
-        return f"Fix suggestion unavailable (Gemini error: {e}). Manual investigation required."
+    """Generate a deterministic, specific fix suggestion for a violation without incurring LLM latency."""
+    return (
+        f"[Auto-diagnosis] Semantic drift or violation detected in '{data_asset}'.\n"
+        f"Violation Details: {violation_reason}\n"
+        f"Drift Context: {drift_explanation}\n\n"
+        f"Recommended Action:\n"
+        f"1. Query the latest corrupted batch: `SELECT * FROM {data_asset} LIMIT 100`\n"
+        f"2. Review recent upstream pipeline or schema migrations affecting the column mentioned.\n"
+        f"3. Compare the output to the last known-good snapshot to verify if this is an organic business shift or a software bug."
+    )
 
 
 # ──────────────────────────────────────────
@@ -200,9 +187,17 @@ def create_contract(
     """
     Create a new data contract.
     Parses the plain-English definition with Gemini and stores it.
-    Returns the full contract object.
+    Returns the full contract object with a deterministic version hash.
     """
+    import hashlib
+    
     compiled = parse_contract_with_ai(plain_english)
+    
+    # Deterministic Schema Pinning: Ensure the JSON can't silently drift
+    schema_str = json.dumps(compiled, sort_keys=True)
+    version_hash = hashlib.sha256(schema_str.encode("utf-8")).hexdigest()[:16]
+    compiled["version_hash"] = f"v_{version_hash}"
+    
     compiled_json = json.dumps(compiled)
 
     contract_id = register_contract(
@@ -214,6 +209,7 @@ def create_contract(
 
     return {
         "contract_id": contract_id,
+        "version_hash": compiled["version_hash"],
         "data_asset": data_asset,
         "plain_english": plain_english,
         "compiled": compiled,

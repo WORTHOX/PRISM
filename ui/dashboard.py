@@ -27,32 +27,83 @@ st.set_page_config(
 )
 
 # ─── AUTHENTICATION ───────────────────────────────────────────────────
-# [TESTING PHASE] Authentication bypassed for local development/demos
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = True
-    st.session_state.user_name = "Admin (Test Mode)"
-    st.session_state.user_email = "admin@prism.local"
+import os
 
-# if not st.session_state.authenticated:
-#     st.markdown("<style>body, .main { background: var(--background-color); color: var(--text-color); font-family: 'Inter', sans-serif; }</style>", unsafe_allow_html=True)
-#     st.markdown("<center><h1 style='margin-top:100px; font-weight: 500;'>PRISM</h1><p style='color: var(--text-color); opacity: 0.7;'>Identity & Access Management</p></center>", unsafe_allow_html=True)
-#     
-#     col1, col2, col3 = st.columns([1,1,1])
-#     with col2:
-#         with st.form("login"):
-#             st.markdown("<span style='color: var(--text-color); opacity: 0.7; font-size: 0.9em;'>Secure access required to view ledger.</span>", unsafe_allow_html=True)
-#             name = st.text_input("Full Name")
-#             email = st.text_input("Corporate Email")
-#             secret = st.text_input("IAM Secret", type="password")
-#             if st.form_submit_button("Authenticate", use_container_width=True):
-#                 if name and email and secret == "admin":
-#                     st.session_state.authenticated = True
-#                     st.session_state.user_name = name
-#                     st.session_state.user_email = email
-#                     st.rerun()
-#                 else:
-#                     st.error("Invalid credentials or unauthorized identity.")
-#     st.stop()
+# ─── AUTHENTICATION ───────────────────────────────────────────────────
+# Config-driven allowed users list. Format: Name:Email:Secret,Name:Email:Secret
+# Defaulting to an admin user if not set in environment config.
+_allowed_config = os.getenv("PRISM_ALLOWED_USERS", "Admin:admin@prism.local:admin")
+AUTHORIZED_CREDENTIALS = {}
+for u_str in _allowed_config.split(","):
+    parts = u_str.split(":")
+    if len(parts) == 3:
+        AUTHORIZED_CREDENTIALS[parts[1]] = {"name": parts[0], "secret": parts[2]}
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown("""
+        <style>
+        /* Hide all vertical scrollbars completely in auth mode */
+        html, body, [data-testid="stAppViewContainer"], .main, .block-container {
+            overflow: hidden !important;
+            height: 100vh !important;
+            min-height: 100vh !important;
+            max-height: 100vh !important;
+        }
+        
+        /* Flexbox vertical sizing to perfectly anchor the login box */
+        [data-testid="block-container"] {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            margin-top: -8vh; /* Counteract streamlit's native header padding to true-center */
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            font-family: 'Inter', sans-serif;
+        }
+        .login-title {
+            font-weight: 600;
+            font-size: 2.5rem;
+            letter-spacing: -0.05em;
+        }
+        .login-subtitle {
+            opacity: 0.7;
+            font-size: 1.1rem;
+        }
+        </style>
+        <div class="login-header">
+            <div class="login-title">PRISM</div>
+            <div class="login-subtitle">Identity & Access Management</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Use [1, 2, 1] column ratio so the center form is properly proportioned (50% of the centered layout)
+    col1, col2, col3 = st.columns([1, 2.5, 1])
+    with col2:
+        with st.form("login"):
+            st.markdown("<div style='text-align: center; margin-bottom: 1rem; opacity: 0.8; font-size: 0.9em;'>Secure access required to view ledger.</div>", unsafe_allow_html=True)
+            name = st.text_input("Full Name", placeholder="e.g. John Doe")
+            email = st.text_input("Corporate Email", placeholder="admin@prism.local")
+            secret = st.text_input("IAM Secret", type="password", placeholder="••••••••")
+            
+            st.write("") # Spacing
+            if st.form_submit_button("Authenticate", use_container_width=True):
+                # Verify identity against allowed credentials dictionary
+                if email in AUTHORIZED_CREDENTIALS and secret == AUTHORIZED_CREDENTIALS[email]["secret"]:
+                    st.session_state.authenticated = True
+                    st.session_state.user_name = name or AUTHORIZED_CREDENTIALS[email]["name"]
+                    st.session_state.user_email = email
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials or unauthorized identity.")
+    st.stop()
 
 # ─── Styles ───────────────────────────────────────────────────────────
 st.markdown("""
@@ -319,10 +370,22 @@ with tab2:
                     with st.form(key=f"approve_{item['event_id']}"):
                         st.markdown(f"<div style='font-family:\'SF Mono\', Consolas, monospace; font-size:0.75rem; color:var(--text-color); margin-bottom: 8px;'>Authorized By: {st.session_state.user_name} ({st.session_state.user_email})</div>", unsafe_allow_html=True)
                         note_a = st.text_area("Justification for Override", key=f"note_a_{item['event_id']}", height=80, placeholder="Explain why this data is safe to ingest...")
+                        
+                        drift_score = item.get("fingerprint_delta") or 0.0
+                        is_extreme_drift = drift_score > 0.60
+                        
+                        confirm_text = ""
+                        if is_extreme_drift:
+                            st.warning("⚠️ Extreme Semantic Drift detected. To approve, you must type 'CONFIRM' below to acknowledge the severity.")
+                            confirm_text = st.text_input("Type CONFIRM to proceed", key=f"confirm_{item['event_id']}")
+                        
                         if st.form_submit_button("Approve & Unblock Data", use_container_width=True):
-                            result = approve_decision(item["event_id"], st.session_state.user_name, st.session_state.user_email, note_a)
-                            st.success(result["message"])
-                            st.rerun()
+                            if is_extreme_drift and confirm_text != "CONFIRM":
+                                st.error("You must type 'CONFIRM' exactly to bypass an extreme semantic drift block.")
+                            else:
+                                result = approve_decision(item["event_id"], st.session_state.user_name, st.session_state.user_email, note_a)
+                                st.success(result["message"])
+                                st.rerun()
 
                 with col_b:
                     with st.form(key=f"reject_{item['event_id']}"):

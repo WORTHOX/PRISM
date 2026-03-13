@@ -31,6 +31,25 @@ from core.contracts import (
     get_contract_for_asset,
     generate_fix_suggestion,
 )
+import time
+
+# ─── Baseline Cache ──────────────────────────────────────────────────
+# To avoid hammering Postgres/DuckDB on every micro-batch execution,
+# we cache the baseline fingerprint for a configurable duration.
+_BASELINE_CACHE = {}
+_BASELINE_CACHE_TTL = 300  # 5 minutes
+
+def _get_cached_baseline(data_asset: str) -> dict | None:
+    now = time.time()
+    if data_asset in _BASELINE_CACHE:
+        entry, timestamp = _BASELINE_CACHE[data_asset]
+        if now - timestamp < _BASELINE_CACHE_TTL:
+            return entry
+            
+    # Cache miss or expired
+    baseline = get_last_good_fingerprint(data_asset)
+    _BASELINE_CACHE[data_asset] = (baseline, now)
+    return baseline
 
 
 # ─── Drift thresholds ────────────────────────────────────────────────
@@ -52,10 +71,23 @@ class PrismResult:
     snapshot_served: bool
 
 
+import os
+import pyarrow as pa
+from typing import Union
+
+# ─── API Authentication Config ───────────────────────────────────────
+# Format: client1:secret1,client2:secret2
+_api_config = os.getenv("PRISM_API_KEYS", "demo:demo-key")
+AUTHORIZED_API_KEYS = set()
+for k_str in _api_config.split(","):
+    if ":" in k_str:
+        AUTHORIZED_API_KEYS.add(k_str.split(":")[1])
+
 def inspect(
-    df: pd.DataFrame,
+    df: Union[pd.DataFrame, pa.Table],
     pipeline_name: str,
     data_asset: str,
+    api_key: str | None = None,
 ) -> PrismResult:
     """
     Run a DataFrame through the Prism engine.
@@ -72,13 +104,17 @@ def inspect(
         PrismResult with the decision, reason, and any fix suggestions.
     """
 
+    # ── Step 0: Authentication ───────────────────────────────────────
+    if not api_key or api_key not in AUTHORIZED_API_KEYS:
+        raise PermissionError("PRISM: Unauthorized. Invalid or missing API key.")
+
     # ── Step 1: Compute current fingerprint ──────────────────────────
     current_fp = fingerprint_dataframe(df, asset_description=data_asset)
     current_vec = current_fp["vector"]
     current_stats = current_fp["column_stats"]
 
     # ── Step 2: Get baseline fingerprint ─────────────────────────────
-    baseline_record = get_last_good_fingerprint(data_asset)
+    baseline_record = _get_cached_baseline(data_asset)
 
     # ── Step 3: Compute drift score ───────────────────────────────────
     drift_score = 0.0
@@ -120,8 +156,10 @@ def inspect(
     # ── Step 4: Contract rule checks ─────────────────────────────────
     contract = get_contract_for_asset(data_asset)
     contract_violations = []
+    contract_version = "unversioned"
 
     if contract and contract.get("compiled"):
+        contract_version = contract["compiled"].get("version_hash", "unversioned")
         rules = contract["compiled"].get("rules", [])
         for rule in rules:
             violation = _check_rule(df, rule)
@@ -137,10 +175,10 @@ def inspect(
         confidence = min(0.95, 0.6 + drift_score * 0.5)
 
         if contract_violations:
-            reason = f"Contract violation(s): {'; '.join(contract_violations)}. " \
+            reason = f"[Schema {contract_version}] Contract violation(s): {'; '.join(contract_violations)}. " \
                      f"Semantic drift score: {drift_score:.2f}."
         else:
-            reason = f"Severe semantic drift detected (score: {drift_score:.2f}). " \
+            reason = f"[Schema {contract_version}] Severe semantic drift detected (score: {drift_score:.2f}). " \
                      f"{drift_explanation[:200]}"
 
         fix_suggestion = generate_fix_suggestion(
@@ -156,7 +194,7 @@ def inspect(
         decision = AIDecision.HOLD
         confidence = 0.6
         reason = (
-            f"Moderate semantic drift detected (score: {drift_score:.2f}). "
+            f"[Schema {contract_version}] Moderate semantic drift detected (score: {drift_score:.2f}). "
             f"Flagged for human review. {drift_explanation[:150]}"
         )
         fix_suggestion = None
@@ -166,7 +204,7 @@ def inspect(
         # ── PASS ──────────────────────────────────────────────────────
         decision = AIDecision.PASS
         confidence = 1.0 - drift_score
-        reason = f"Data passed all checks. Semantic drift score: {drift_score:.2f} (within threshold)."
+        reason = f"[Schema {contract_version}] Data passed all checks. Semantic drift score: {drift_score:.2f} (within threshold)."
         fix_suggestion = None
         snapshot_served = False
 
@@ -209,13 +247,21 @@ def _save_good_snapshot(data_asset: str, fingerprint: dict):
         column_stats=json.dumps(fingerprint["column_stats"]),
         status="good",
     )
+    # Invalidate cache so the new baseline is immediately picked up
+    if data_asset in _BASELINE_CACHE:
+        del _BASELINE_CACHE[data_asset]
 
 
-def _check_rule(df: pd.DataFrame, rule: dict) -> str | None:
+def _check_rule(df: Union[pd.DataFrame, pa.Table], rule: dict) -> str | None:
     """
-    Check a single compiled contract rule against the DataFrame.
+    Check a single compiled contract rule against the DataFrame or Table.
     Returns a violation message string, or None if the rule passes.
     """
+    if isinstance(df, pa.Table):
+        try:
+            df = df.to_pandas(types_mapper=pd.ArrowDtype)
+        except AttributeError:
+            df = df.to_pandas()
     rule_type = rule.get("type", "")
     col = rule.get("column", "all")
     params = rule.get("parameters", {})

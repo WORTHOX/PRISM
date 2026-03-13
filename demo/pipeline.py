@@ -124,7 +124,7 @@ def run_demo(chaos_mode: str = None):
     # Step 2: Generate baseline (first run → always PASS)
     console.print("\n[bold]Step 2: Running clean baseline data through Prism...[/bold]")
     clean_df = generate_revenue_data(seed=42)
-    result = inspect(clean_df, pipeline_name="nightly_revenue", data_asset="fct_monthly_revenue")
+    result = inspect(clean_df, pipeline_name="nightly_revenue", data_asset="fct_monthly_revenue", api_key="demo-key")
     _print_result(result, "Baseline Run")
 
     # Step 3: Run with chaos if specified
@@ -132,7 +132,7 @@ def run_demo(chaos_mode: str = None):
         console.print(f"\n[bold]Step 3: Injecting chaos ({chaos_mode}) and running again...[/bold]")
         chaos_df = generate_revenue_data(seed=99)   # Slightly different seed
         chaos_df = apply_chaos(chaos_df, chaos_mode)
-        result = inspect(chaos_df, pipeline_name="nightly_revenue", data_asset="fct_monthly_revenue")
+        result = inspect(chaos_df, pipeline_name="nightly_revenue", data_asset="fct_monthly_revenue", api_key="demo-key")
         _print_result(result, f"Chaos Run ({chaos_mode})")
 
         if result.decision != AIDecision.PASS:

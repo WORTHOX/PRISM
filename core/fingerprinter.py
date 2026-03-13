@@ -13,16 +13,29 @@ import json
 import hashlib
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+from typing import Union
 from pathlib import Path
 
 def _benford_deviation(series: pd.Series) -> float:
     """Calculate Mean Absolute Deviation from Benford's Law for a numeric series."""
-    if series.nunique() < 10:
-        return 0.0  # Not enough unique magnitude scales for Benford to apply
+    # Strict applicability check: Benford's Law ONLY applies if data spans multiple orders of magnitude
+    # and has sufficient diversity. Otherwise, it generates massive false positives (e.g., on IDs or Ages).
+    non_null = series.dropna()
+    if len(non_null) < 100 or non_null.nunique() < 50:
+        return 0.0
 
-    non_zero = series[series != 0].dropna().abs().astype(str)
+    abs_vals = non_null.abs()
+    abs_vals = abs_vals[abs_vals > 0]
+    if len(abs_vals) == 0:
+        return 0.0
+
+    magnitude_span = abs_vals.max() / abs_vals.min()
+    if magnitude_span < 100:  # Must span at least two orders of magnitude
+        return 0.0
+        
     # Extract first digit 1-9
-    first_digits = non_zero.str.extract(r'([1-9])', expand=False).dropna().astype(int)
+    first_digits = abs_vals.astype(str).str.extract(r'([1-9])', expand=False).dropna().astype(int)
     
     if len(first_digits) < 100:
         return 0.0  # Not enough data for meaningful distribution
@@ -86,9 +99,9 @@ def compute_column_stats(df: pd.DataFrame) -> dict:
     return {col: _stats_for_column(df[col]) for col in df.columns}
 
 
-def fingerprint_dataframe(df: pd.DataFrame, asset_description: str = "") -> dict:
+def fingerprint_dataframe(df: Union[pd.DataFrame, pa.Table], asset_description: str = "") -> dict:
     """
-    Generate a semantic fingerprint for a DataFrame.
+    Generate a semantic fingerprint for a DataFrame or PyArrow Table.
 
     The fingerprint is a deterministic numeric vector that captures:
     1. Column-level statistical distributions
@@ -109,6 +122,14 @@ def fingerprint_dataframe(df: pd.DataFrame, asset_description: str = "") -> dict
             "meta": {...}            # Metadata about the fingerprint
         }
     """
+    if isinstance(df, pa.Table):
+        # Enterprise Scalability hook: Convert PyArrow directly to Pandas using ArrowDtype
+        # where applicable to preserve memory efficiency and avoid heavy copying
+        try:
+            df = df.to_pandas(types_mapper=pd.ArrowDtype)
+        except AttributeError:
+            df = df.to_pandas()
+
     col_stats = compute_column_stats(df)
     vector_parts = []
 
