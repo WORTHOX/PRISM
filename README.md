@@ -74,13 +74,19 @@ pip install -r requirements.txt
 ```
 
 ### 2. Run the Physics Demos
-**Entropy Collapse (demo/physics_demo.py):**
+**Chaos Pipeline Simulator (`demo/pipeline.py`):**
+Simulates a classic daily ETL job. You can pass in chaos arguments (`unit_flip`, `null_injection`, `sign_flip`) to watch the deterministic engine block severe data drift while logging semantic hashes.
+```bash
+python demo/pipeline.py unit_flip
+```
+
+**Entropy Collapse (`demo/physics_demo.py`):**
 This demo simulates a payment gateway bug using real NYC Taxi data. All diverse payment types (Cash, Dispute, Void) are silently defaulted to "Credit Card". Row counts remain perfect. Nulls are 0%. Watch Prism's semantic engine detect the Shannon Entropy collapse and instantly sever the pipeline.
 ```bash
 python demo/physics_demo.py
 ```
 
-**Benford's Law Validation (test_benford.py):**
+**Benford's Law Validation (`test_benford.py`):**
 This verifies Prism's capability to detect artificially uniform synthetic data injections within financial ledgers that bypass standard bounds checks.
 ```bash
 python test_benford.py
@@ -94,11 +100,20 @@ Open `http://localhost:8501` to view the Live Telemetry, the IAM-secured Quarant
 
 ---
 
+## Enterprise Upgrades (v1 Beta)
+* **API Edge Securitization**: Headless ingestion endpoints (`engine.inspect()`) are protected via the `PRISM_API_KEYS` environmental registry, enforcing machine-to-machine trust.
+* **Deterministic Contract Pinning**: LLM-compiled Pydantic schemas are hashed via SHA-256 (`v_XXXXX`) upon creation. The execution engine permanently pins and logs this exact schema hash against the audit ledger to prevent silent drift.
+* **Zero-Copy Big Data Ingestion**: The fingerprinter natively accepts Apache Arrow (`pyarrow.Table`), preparing the pipeline for high-throughput Parquet/Iceberg Lakehouse evaluation without memory fragmentation.
+* **HITL Blast-Radius Control**: The Streamlit interface integrates dynamic 'Anti-Rubber-Stamping' mechanisms. If incoming drift exceeds 0.60, the UI forcefully challenges the steward to type `CONFIRM` before allowing the override.
+* **Baseline Caching**: An in-memory TTL dictionary intercepts redundant Postgres DB lookups on high-concurrency micro-batch streams, vastly improving throughput.
+
+---
+
 ## Tech Stack
-* **Engine / Telemetry:** Python 3.10+, Pandas, NumPy
+* **Engine / Telemetry:** Python 3.10+, Pandas, NumPy, PyArrow
 * **Immutable Storage:** DuckDB, PostgreSQL, psycopg2
 * **Command Center UI:** Streamlit (Custom Enterprise Dark Theme)
-* **Contract Compilation:** Google Gemini 2.0 Flash API (Structured Outputs / Pydantic)
+* **Contract Compiler:** Gemini 2.0 API (Isolated to generation only; runtime execution is deterministically isolated).
 
 ---
 
