@@ -24,6 +24,3 @@ venv.bak/
 # IDEs
 .vscode/
 .idea/
-
-# Tooling Context
-master_prompt.md
